@@ -1,0 +1,14 @@
+# 세션 발견 범위. 실행 sandbox의 접근/쓰기 권한 설정과는 별개다.
+[session_tracking]
+cwd = "/home/haaland"
+match = "exact"
+
+[bridge]
+permission_mode = "readonly"
+max_queue_length = 30
+max_job_runtime = 600
+approval_timeout = 120
+
+[security]
+write_workspaces = ["/home/haaland/heimdall/workspaces/default"]
+

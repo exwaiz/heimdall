@@ -1,0 +1,35 @@
+[Unit]
+Description=Heimdall private Telegram bridge
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+User=haaland
+Group=haaland
+WorkingDirectory=/home/haaland/heimdall
+Environment=HOME=/home/haaland
+Environment=CODEX_HOME=/home/haaland/.codex
+Environment=PATH=/home/haaland/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/haaland/heimdall/.venv/bin/python /home/haaland/heimdall/scripts/run_bridge.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillMode=control-group
+UMask=0077
+MemoryAccounting=yes
+MemoryHigh=1G
+MemoryMax=1500M
+CPUWeight=20
+IOWeight=20
+TasksMax=128
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=heimdall-bridge
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=100
+
+[Install]
+WantedBy=multi-user.target

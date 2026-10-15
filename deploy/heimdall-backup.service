@@ -1,0 +1,26 @@
+[Unit]
+Description=Heimdall SQLite online backup
+
+[Service]
+Type=oneshot
+User=haaland
+Group=haaland
+WorkingDirectory=/home/haaland/heimdall
+Environment=HOME=/home/haaland
+Environment=CODEX_HOME=/home/haaland/.codex
+Environment=PATH=/home/haaland/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/haaland/heimdall/.venv/bin/python /home/haaland/heimdall/scripts/backup_bridge.py backup --destination-dir /home/haaland/.local/share/heimdall/backups --include-assets
+UMask=0077
+TimeoutStartSec=300
+MemoryAccounting=yes
+MemoryHigh=256M
+MemoryMax=512M
+Nice=10
+CPUWeight=10
+IOWeight=10
+TasksMax=16
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=heimdall-backup
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=30
