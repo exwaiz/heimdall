@@ -102,6 +102,18 @@ class Store:
             if 'network_until' not in columns:
                 self.conn.execute(f'ALTER TABLE {table} ADD COLUMN network_until REAL NOT NULL DEFAULT 0')
         self.conn.execute('INSERT OR IGNORE INTO schema_migrations VALUES(7,?)', (now(),))
+        # Foundation only: no retrieval or capture is enabled by this migration.
+        # Keep the column, settings and version marker atomic on legacy databases.
+        with self.transaction():
+            self.conn.execute("""CREATE TABLE IF NOT EXISTS memory_settings(
+                chat_id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL,
+                auto_retrieve INTEGER NOT NULL DEFAULT 0 CHECK(auto_retrieve IN (0,1)),
+                capture_mode TEXT NOT NULL DEFAULT 'off' CHECK(capture_mode IN ('off','suggest')),
+                updated_at TEXT NOT NULL)""")
+            columns = {r[1] for r in self.conn.execute('PRAGMA table_info(jobs)')}
+            if 'auto_memory_refs' not in columns:
+                self.conn.execute('ALTER TABLE jobs ADD COLUMN auto_memory_refs TEXT')
+            self.conn.execute('INSERT OR IGNORE INTO schema_migrations VALUES(8,?)', (now(),))
 
     @contextmanager
     def transaction(self):
@@ -165,7 +177,7 @@ class Store:
     def handled(self, update):
         self.conn.execute("UPDATE telegram_updates SET state='handled' WHERE update_id=?", (update,))
 
-    def enqueue(self, chat, user, message, thread, prompt, baseline, maximum):
+    def enqueue(self, chat, user, message, thread, prompt, baseline, maximum, *, auto_memory_refs=None):
         existing = self.conn.execute("SELECT job_id FROM jobs WHERE chat_id=? AND telegram_message_id=?", (chat, message)).fetchone()
         if existing:
             return existing[0]
@@ -173,8 +185,9 @@ class Store:
         if count >= maximum:
             raise ValueError("queue_full")
         mode = self.permission_mode(chat)
-        cursor = self.conn.execute("INSERT INTO jobs(chat_id,user_id,telegram_message_id,thread_id,prompt,state,baseline,created_at,permission_mode,network_until) VALUES(?,?,?,?,?,'queued',?,?,?,?)",
-                                   (chat, user, message, thread, prompt, baseline, now(), mode, self.network_deadline(chat) if mode == 'network' else 0))
+        cursor = self.conn.execute("INSERT INTO jobs(chat_id,user_id,telegram_message_id,thread_id,prompt,state,baseline,created_at,permission_mode,network_until,auto_memory_refs) VALUES(?,?,?,?,?,'queued',?,?,?,?,?)",
+                                   (chat, user, message, thread, prompt, baseline, now(), mode,
+                                    self.network_deadline(chat) if mode == 'network' else 0, auto_memory_refs))
         return cursor.lastrowid
 
     def claim(self):

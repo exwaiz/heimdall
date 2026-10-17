@@ -112,7 +112,7 @@ class KnowledgeTests(unittest.IsolatedAsyncioTestCase):
         value = self.note()
         await self.bridge.command("/ask 출장", 7, 7, 90)
         job = self.store.job(1)
-        for proof in ({"id": "HK-999999", "quote": "서울 출장 식비는 칠만삼천원으로 확정되었습니다."},
+        for proof in ({"id": "GB-999999", "quote": "서울 출장 식비는 칠만삼천원으로 확정되었습니다."},
                       {"id": value, "quote": "기록에 존재하지 않는 인용문입니다."}):
             with self.assertRaises(ValueError):
                 self.k.finish(job, json.dumps({"answer": f"답변 [{value}]", "evidence": [proof]}))
@@ -140,8 +140,8 @@ class KnowledgeTests(unittest.IsolatedAsyncioTestCase):
     async def test_image_extraction_uses_global_queue_and_dedup(self):
         await self.bridge.handle({"update_id": 2, "message": message(2, "photo")})
         await self.bridge.work_once()
-        number = self.k.schedule("HK-000001", 7, 7, 90)
-        self.assertEqual(self.k.schedule("HK-000001", 7, 7, 91), number)
+        number = self.k.schedule("GB-000001", 7, 7, 90)
+        self.assertEqual(self.k.schedule("GB-000001", 7, 7, 91), number)
         self.assertTrue(await self.bridge.process_knowledge_once())
         job = self.store.job(2)
         self.assertEqual(json.loads(job["image_assets"]), [1])
@@ -151,13 +151,13 @@ class KnowledgeTests(unittest.IsolatedAsyncioTestCase):
         self.store.claim()
         self.store.transition(2, "running", codex_turn_id="extract-turn")
         self.bridge.finish(job, {"status":"completed", "text":json.dumps({"text":"영수증 금액 73000원", "description":"출장 식비 영수증 이미지"})})
-        self.assertEqual(self.k.search("영수증",7,7)[0]["id"], "HK-000001")
+        self.assertEqual(self.k.search("영수증",7,7)[0]["id"], "GB-000001")
         self.assertEqual(self.store.conn.execute("SELECT state FROM processing_jobs").fetchone()[0], "completed")
 
     async def test_document_prepare_local_only_indexes_without_model(self):
         self.transport.data = b"sample document"
         await self.bridge.handle({"update_id":2,"message":message(2,"document")})
-        self.k.schedule("HK-000001",7,7,90)
+        self.k.schedule("GB-000001",7,7,90)
         with patch("heimdall_bridge.extraction.prepare", new=AsyncMock(return_value={"text":"출장 영수증 총액은 칠만삼천원입니다.","images":[]})):
             await self.bridge.process_knowledge_once()
         self.assertFalse(self.adapter.calls)
@@ -166,7 +166,7 @@ class KnowledgeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_audio_unsupported_honestly_and_original_retained(self):
         await self.bridge.handle({"update_id":2,"message":message(2,"voice")})
-        self.k.schedule("HK-000001",7,7,90)
+        self.k.schedule("GB-000001",7,7,90)
         with patch("heimdall_bridge.extraction.prepare", new=AsyncMock(return_value={"unsupported":"audio_turn_input_unsupported"})):
             await self.bridge.process_knowledge_once()
         self.assertEqual(self.store.conn.execute("SELECT state FROM processing_jobs").fetchone()[0], "unsupported")
@@ -184,7 +184,7 @@ class KnowledgeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_video_model_prompt_discloses_partial_frames_and_no_audio(self):
         await self.bridge.handle({"update_id":2,"message":message(2,"video")})
-        self.k.schedule("HK-000001",7,7,90)
+        self.k.schedule("GB-000001",7,7,90)
         result={"text":"일부 프레임만 분석","images":[base64.b64encode(png()).decode()]}
         with patch("heimdall_bridge.extraction.prepare",new=AsyncMock(return_value=result)):
             await self.bridge.process_knowledge_once()
@@ -253,7 +253,7 @@ class KnowledgeTests(unittest.IsolatedAsyncioTestCase):
     async def test_extract_bad_json_fails_and_retry_requires_new_extract_request(self):
         await self.bridge.handle({"update_id":2,"message":message(2,"photo")})
         await self.bridge.work_once()
-        self.k.schedule("HK-000001",7,7,90)
+        self.k.schedule("GB-000001",7,7,90)
         await self.bridge.process_knowledge_once()
         job=self.store.claim()
         self.store.transition(job["job_id"],"running",codex_turn_id="extract")
@@ -266,7 +266,7 @@ class KnowledgeTests(unittest.IsolatedAsyncioTestCase):
     async def test_processing_reconciliation_preserves_uncertain_without_replay(self):
         await self.bridge.handle({"update_id":2,"message":message(2,"photo")})
         await self.bridge.work_once()
-        self.k.schedule("HK-000001",7,7,90)
+        self.k.schedule("GB-000001",7,7,90)
         await self.bridge.process_knowledge_once()
         job=self.store.claim()
         self.store.transition(job["job_id"],"running",codex_turn_id="extract")

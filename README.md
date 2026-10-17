@@ -14,6 +14,12 @@ Raspberry Pi 위에서 SSH와 Telegram을 오가며 같은 Codex 대화를 이�
 상세 검증 범위와 남은 제한은 [Phase 2 보고서](docs/PHASE2_REPORT.md),
 [Phase 3 보고서](docs/PHASE3_REPORT.md), [Phase 4 보고서](docs/PHASE4_REPORT.md)에 있다.
 
+Auto-Memory는 [설계서 v0.1](docs/AUTO_MEMORY_DESIGN_v0.1.md)를 기준으로 개발 중이다.
+PR-A/B/C 코드(기본 OFF 설정·스키마 v8·검색/참조 검증·일반 대화 참고 주입·설정 명령)를
+구현했고 2026-10-17 운영에 기본 OFF로 반영했다. 자동 검색은 소유자의 명시적 명령으로
+켤 수 있으며 자동 캡처는 미구현이다. [배포 확인·테스트 순서](docs/AUTO_MEMORY_DEPLOYMENT.md).
+[구현 범위와 다음 단계](docs/AUTO_MEMORY_IMPLEMENTATION.md).
+
 ## 사용
 
 1. `/database` → `/select <ID>` 또는 `/new [이름]`.
@@ -44,14 +50,21 @@ Pi 설치 이력·패키지 목록은 기본 읽기 모드에서도 조회한다
 Codex 최종 답변의 로컬 PNG/JPEG 이미지 링크는 검증 후 Telegram 사진으로 첨부한다.
 이미 끝난 일반 작업은 `/images <작업 ID>`로 사진만 다시 요청할 수 있다.
 Codex 질문은 재실행하지 않는다. [사진 답변 전송](docs/OUTGOING_IMAGES.md).
-`/save <메모>`, `/items`, `/item HK-000001`, `/tag HK-000001 태그`, `/search <검색어>`,
-`/ask <질문>`, `/extract HK-000001`, `/processing`, `/forget HK-000001`을 추가했다.
+`/save <메모>`, `/items`, `/item GB-000001`, `/tag GB-000001 태그`, `/search <검색어>`,
+`/ask <질문>`, `/extract GB-000001`, `/processing`, `/forget GB-000001`을 추가했다.
 사진 답변은 검색 자료로도 저장한다. `/extract`는 Codex로 이미지 글자·장면을 추출하고,
 문서의 텍스트를 읽거나 영상의 최대 3개 프레임을 분석한다. 음성은 원본·캡션만 보관한다.
 별도 로컬 OCR·음성인식 AI는 설치하지 않는다. 자세한 사용법은 [지식 기능 안내](docs/KNOWLEDGE.md).
-`/memory` (별칭 `/memories`)로 현재 스레드 대화·Codex 자체 메모리·Heimdall 지식 저장소를
-구분하고 제한된 설정 상태를 조회한다. 설정을 바꾸지는 않으며 일반 질문은 지식 저장소를
-자동 검색하지 않는다. [메모리 개선 검증](docs/MEMORY_FIX_REPORT.md).
+`/memory 저장해줘: 내용`, `/memory GB-000001 읽어줘`,
+`/memory GB-000001 수정해줘: 새 전체 내용`으로 Heimdall 지식을 직접 관리한다.
+원본과 수정 이력은 보존하며 애매한 요청은 변경하지 않는다. 추가 모델 호출은 없다.
+인자 없는 `/memory` (별칭 `/memories`)로 현재 스레드 대화·Codex 자체 메모리·Heimdall 지식 저장소를
+구분하고 제한된 설정 상태를 조회한다. 이 조회 명령은 설정을 바꾸지 않는다.
+일반 질문의 자동 검색은 기본 OFF이며 `/knowledge auto on`으로 켠 일반 읽기 전용 텍스트만 최대 3개 자료를
+추가 참고 입력으로 받는다. `/knowledge auto off`는 대기 작업도 중지한다.
+`/knowledge status`, `/knowledge test <질문>`은 모델 호출 없이 상태·검색 결과를 확인한다.
+쓰기·network·임시 권한 및 사진 캡션은 자동 검색하지 않는다.
+[메모리 구분](docs/MEMORY_FIX_REPORT.md), [Auto-Memory 개발·배포 범위](docs/AUTO_MEMORY_IMPLEMENTATION.md).
 URL 원문은 질문으로 전달하지만 브리지가 URL을 가져오지는 않는다.
 
 ## 운영

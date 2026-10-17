@@ -16,6 +16,7 @@ from .approvals import ApprovalManager
 from .commands import CommandHandler
 from .assets import AssetStore, AssetError
 from .knowledge import Knowledge
+from .auto_memory import AutoMemoryRetriever, RetrievalResult, encode_refs
 from .outgoing import prepare_images, queue_images
 
 HELP = """Heimdall · Codex 세션 브리지
@@ -24,7 +25,7 @@ HELP = """Heimdall · Codex 세션 브리지
 /new [이름] — 새 세션 생성·연결
 /current — 현재 연결
 /status — 연결·권한·큐 상태
-/memory · /memories — 스레드 대화 / Codex 메모리 / Heimdall 저장소 구분·조회
+/memory [자연어 요청] · /memories — Heimdall 저장·조회·수정 (인자 없으면 메모리 구분·상태)
 /queue — 내 작업 상태
 /cancel — 실행 중 작업 또는 첫 대기 작업 취소
 /mode read|write|network — 다음 작업 권한 (network: 30분 임시 인터넷·일반 파일 쓰기)
@@ -34,11 +35,13 @@ HELP = """Heimdall · Codex 세션 브리지
 /deliveries · /resend <ID> [duplicate] · /backup
 /assets [개수] · /asset <ID> — 저장 자료 확인
 /images <작업 ID> — 완료 답변의 로컬 이미지를 사진으로 전송
-/save <메모> · /items · /item HK-000001 · /tag HK-000001 태그
-/search <검색어> · /ask <자료 질문> · /extract HK-000001 · /processing
-/forget HK-000001 — 검색에서 제외 (원본 삭제 아님)
+/save <메모> · /items · /item GB-000001 · /tag GB-000001 태그
+/search <검색어> · /ask <자료 질문> · /extract GB-000001 · /processing
+/knowledge auto on|off · /knowledge status · /knowledge test <질문> — 자동 검색 (기본 OFF)
+/forget GB-000001 — 검색에서 제외 (원본 삭제 아님)
 /help — 도움말
 일반 텍스트 원문은 선택 세션에 전달하고, 별도 입력으로 메모리·보호 정책 안내를 덧붙입니다.
+자동 검색 ON일 때 일반 읽기 전용 텍스트에만 최대 3개 자료를 별도 참고 입력으로 전달합니다.
 사진은 선택 세션에 캡션+이미지 전달. 문서·영상은 /extract로 추출, 음성은 보관만 합니다.
 기본 읽기 전용. 쓰기 모드 승인 버튼은 이번 요청만, 만료 시 거부.
 같은 세션을 CLI와 Telegram에서 동시에 사용하지 마세요."""
@@ -160,6 +163,7 @@ class Bridge:
         self.commands = CommandHandler(self)
         self.assets = AssetStore(store, config)
         self.knowledge = Knowledge(store, config)
+        self.auto_memory = AutoMemoryRetriever(self.knowledge)
 
     def authorized(self, message):
         user, chat = message.get("from", {}), message.get("chat", {})
@@ -216,8 +220,26 @@ class Bridge:
                     body = "저장 공간이 부족해 신규 작업을 받지 않습니다."
                 else:
                     try:
+                        # Freeze refs in the same transaction as the original prompt and receipt.
+                        # A duplicate Telegram message must never perform a fresh retrieval.
+                        duplicate = self.store.conn.execute(
+                            'SELECT job_id FROM jobs WHERE chat_id=? AND telegram_message_id=?',
+                            (chat, message['message_id'])).fetchone()
+                        selected = RetrievalResult(reason='disabled')
+                        frozen = None
+                        if not duplicate:
+                            try:
+                                selected = self.auto_memory.retrieve(text, chat, user,
+                                    permission_mode=self.store.permission_mode(chat))
+                                frozen = encode_refs(selected.refs) if selected.refs else None
+                            except Exception:
+                                selected = RetrievalResult(reason='retrieval_error')
                         job = self.store.enqueue(chat, user, message["message_id"], thread_id, text,
-                                                 baseline, self.config.max_queue)
+                            baseline, self.config.max_queue,
+                            auto_memory_refs=frozen)
+                        if not duplicate and selected.reason != 'disabled':
+                            self.store.conn.execute('INSERT INTO job_events(job_id,event_type,created_at) VALUES(?,?,?)',
+                                (job, f'auto_memory_selected:{len(selected.refs)}:{selected.reason}', now()))
                         body = f"📥 작업 #{job} 대기 등록"
                     except ValueError:
                         body = "대기 큐가 가득 찼습니다."
@@ -567,6 +589,20 @@ class Bridge:
                     prompt = self.knowledge.prompt(job) if job.get("knowledge_context") else job["prompt"]
                 except (ValueError, KeyError, TypeError):
                     raise PreflightBlocked("knowledge_source_unavailable") from None
+                if job.get('auto_memory_refs') and not job.get('knowledge_context') and not asset_ids:
+                    count = 0
+                    try:
+                        # A currently writable binding also suspends queued read-only background.
+                        mode = job['permission_mode'] if self.store.permission_mode(job['chat_id']) == 'readonly' else 'blocked'
+                        prepared = self.auto_memory.prepare(job['auto_memory_refs'], job['prompt'],
+                            job['chat_id'], job['user_id'], permission_mode=mode)
+                        if prepared.context:
+                            kwargs['extra_context'] = prepared.context
+                            count = prepared.source_count
+                    except Exception:
+                        pass  # Optional background must not fail an ordinary question or leak data.
+                    self.store.conn.execute('INSERT INTO job_events(job_id,event_type,created_at) VALUES(?,?,?)',
+                        (job['job_id'], f'auto_memory_prepared:{count}', now()))
                 result = await self.adapter.run_turn(job["thread_id"], prompt, started, progress, **kwargs)
                 await self.finish_with_images(job, result)
                 # Our own completed turn is expected history activity for subsequent queued prompts.
