@@ -85,8 +85,33 @@ class MemoryTests(unittest.IsolatedAsyncioTestCase):
         report = await self.bridge.command("/memory", 7, 7)
         self.assertIn("fake-thread-1", report)
         self.assertIn("검색 가능한 자료 1개", report)
-        await self.bridge.command("/forget HK-000001", 7, 7)
+        await self.bridge.command("/forget GB-000001", 7, 7)
         self.assertIn("검색 가능한 자료 0개", await self.bridge.command("/memory", 7, 7))
+
+    async def test_natural_memory_commands_without_binding_or_model_calls(self):
+        for i, request in enumerate((
+            '/memory 저장해줘: 테스트 알림은 17분',
+            '/memory GB-000001 읽어줘',
+            '/memories GB-000001 내용을 업데이트해줘. 테스트 알림은 20분',
+            '/memory 알림 검색해줘',
+            '/memory 저장된 모든 지식을 읽어줘'), 100):
+            await self.bridge.handle(update(i, request))
+        item = self.bridge.knowledge.get('GB-000001', 7, 7)
+        self.assertEqual(item['revision'], 1)
+        self.assertEqual(item['contents'][0]['text'], '테스트 알림은 20분')
+        self.assertFalse(self.adapter.calls)
+        self.assertFalse(self.store.jobs())
+        self.assertIsNone(self.store.binding(7))
+        self.assertFalse(self.bridge.auto_memory.settings.get(7, 7).auto_retrieve)
+        count = self.store.conn.execute('SELECT count(*) FROM knowledge_edits').fetchone()[0]
+        await self.bridge.handle(update(102, '/memories GB-000001 내용을 업데이트해줘. 테스트 알림은 20분'))
+        self.assertEqual(self.store.conn.execute('SELECT count(*) FROM knowledge_edits').fetchone()[0], count)
+
+    async def test_item_and_search_do_not_repeat_auto_title(self):
+        await self.bridge.handle(update(201, '/save 제목 중복 검증 문장'))
+        for command in ('/item GB-000001', '/search 검증'):
+            reply = await self.bridge.command(command, 7, 7)
+            self.assertEqual(reply.count('제목 중복 검증 문장'), 1)
 
     async def test_normal_turn_keeps_original_text_and_separate_policy_context(self):
         adapter = CodexAdapter(self.config)

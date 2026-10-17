@@ -8,6 +8,8 @@ from .operations import Operations
 from .knowledge_backup import backup_bundle
 from .db import now
 from .memory import memory_report
+from .memory_commands import handle_memory
+from .knowledge import title_suffix
 from .outgoing import prepare_images, queue_images
 
 
@@ -19,6 +21,32 @@ class CommandHandler:
     async def handle(self, command, arg, chat, user, message_id):
         b = self.bridge
         active = b.store.binding(chat)
+        if command == '/knowledge':
+            b.knowledge.authorize(chat, user)
+            verb, _, rest = arg.strip().partition(' ')
+            if verb == 'auto':
+                verb, _, rest = rest.strip().partition(' ')
+                if not verb:
+                    raise ValueError('/knowledge auto on|off · /knowledge status · /knowledge test <질문>')
+                if verb in {'on', 'off'} and not rest.strip():
+                    with b.store.transaction():
+                        b.auto_memory.settings.set_auto_retrieve(chat, user, verb == 'on')
+                    return ('자동 검색 ON · 다음 일반 읽기 전용 텍스트 질문부터 적용됩니다. '
+                            '쓰기·network·임시 권한에서는 중지됩니다. 자동 캡처는 켜지지 않습니다.' if verb == 'on' else
+                            '자동 검색 OFF · 대기 작업의 추가 참고 문맥도 제외합니다. '
+                            '이미 Codex에 전달된 참고자료·기존 대화·백업은 삭제하지 않습니다.')
+            if verb in {'', 'status'} and not rest.strip():
+                return b.auto_memory.status(chat, user)
+            if verb == 'test' and rest.strip():
+                result = b.auto_memory.preview(rest, chat, user, permission_mode=b.store.permission_mode(chat))
+                reasons = {'hits': '고신뢰 관련 자료', 'unfocused_query': '인사·단일 일반 키워드 등 검색 생략',
+                           'non_readonly': '현재 권한에서는 자동 검색 중지',
+                           'no_high_confidence_hits': '충분히 관련된 자료 없음'}
+                body = '\n'.join(f'{ref.id} · 점수 {score}' for ref, score in zip(result.refs, result.scores))
+                return (f'자동 검색 미리보기 · {len(result.refs)}개 · {reasons.get(result.reason, "검색 생략")}\n'
+                        + (body + '\n' if body else '')
+                        + '설정 변경·모델 호출·자료 원문 출력 없이 로컬 검색만 했습니다. 점수는 사실 검증이 아닙니다.')
+            raise ValueError('/knowledge auto on|off · /knowledge status · /knowledge test <질문>')
         if command == '/images':
             if not arg.isdecimal() or message_id is None:
                 raise ValueError('/images <완료된 작업 ID>')
@@ -35,10 +63,12 @@ class CommandHandler:
         if command in {"/memory", "/memories"}:
             b.knowledge.authorize(chat, user)
             if arg:
-                raise ValueError("/memory 는 조회 전용입니다. 인자 없이 사용하세요. 메모리 설정은 변경하지 않습니다.")
+                return handle_memory(b.knowledge, arg, chat, user, message_id)
             values = await b.adapter.memory_config()
             count = b.store.conn.execute("SELECT count(*) FROM items WHERE chat_id=? AND user_id=? AND deleted_at IS NULL", (chat, user)).fetchone()[0]
-            return memory_report(values, active, count)
+            return memory_report(values, active, count,
+                auto_retrieve=b.auto_memory.settings.get(chat, user).auto_retrieve,
+                auto_allowed=b.store.permission_mode(chat) == 'readonly' and not b.config.temporary_active())
         if command == "/save":
             if message_id is None:
                 raise ValueError("메시지 ID가 필요합니다.")
@@ -53,14 +83,20 @@ class CommandHandler:
             if command == "/item":
                 item = b.knowledge.get(arg.upper(), chat, user)
                 content = "\n\n".join(f"[{c['extractor']}]\n{c['text']}" for c in item["contents"])
-                return f"{item['id']} · {item['title']}\n태그: {', '.join(item['tags']) or '-'}\n\n{content[:16000]}"
+                body = '\n'.join(c['text'] for c in item['contents'])
+                return f"{item['id']}{title_suffix(item, body)}\n태그: {', '.join(item['tags']) or '-'}\n\n{content[:16000]}"
             if command == "/search":
                 hits = b.knowledge.search(arg, chat, user)
-                return "\n\n".join(f"{h['id']} · {h['title']}\n" + "\n".join(c['text'][:350] for c in h['contents']) for h in hits) or "기록에서 찾지 못했습니다."
+                blocks = []
+                for item in hits:
+                    body = '\n'.join(c['text'] for c in item['contents'])
+                    excerpt = '\n'.join(c['text'][:350] for c in item['contents'])
+                    blocks.append(f"{item['id']}{title_suffix(item, body)}\n{excerpt}")
+                return '\n\n'.join(blocks) or "기록에서 찾지 못했습니다."
             if command == "/tag":
                 parts = arg.split()
                 if len(parts) < 2:
-                    raise ValueError("/tag HK-000001 태그1 태그2")
+                    raise ValueError("/tag GB-000001 태그1 태그2")
                 b.knowledge.tag(parts[0].upper(), parts[1:], chat, user)
                 return "자료 태그를 저장했습니다."
             if command == "/forget":
@@ -71,7 +107,7 @@ class CommandHandler:
                 return "검색에서 제외했습니다. 첨부 원본·기존 대화·백업을 영구 삭제한 것은 아닙니다."
             if command == "/processing":
                 rows = b.store.conn.execute("SELECT processing_id,item_id,state,error_code FROM processing_jobs WHERE chat_id=? AND user_id=? ORDER BY processing_id DESC LIMIT 20", (chat,user))
-                return "\n".join(f"#{r[0]} · HK-{r[1]:06d} · {r[2]} · {r[3] or '-'}" for r in rows) or "추출 작업이 없습니다."
+                return "\n".join(f"#{r[0]} · GB-{r[1]:06d} · {r[2]} · {r[3] or '-'}" for r in rows) or "추출 작업이 없습니다."
             if command == "/extract":
                 if message_id is None:
                     raise ValueError("메시지 ID가 필요합니다.")

@@ -9,6 +9,7 @@ class FakeCodexAdapter:
         self.cwd = str(cwd)
         self.threads = {}
         self.calls = []
+        self.extra_contexts = []
         self.results = {}
         self.delay = 0
         self.fail = False
@@ -70,9 +71,10 @@ class FakeCodexAdapter:
     async def thread_is_active(self, thread_id):
         return self.threads[thread_id]["status"]["type"] == "active"
 
-    async def run_turn(self, thread_id, prompt, on_started, progress, *, permission_mode="readonly", image_paths=(), network_until=0):
+    async def run_turn(self, thread_id, prompt, on_started, progress, *, permission_mode="readonly", image_paths=(), network_until=0, extra_context=None):
         turn_id = f"turn-{len(self.calls) + 1}"
         self.calls.append((thread_id, prompt))
+        self.extra_contexts.append(extra_context)
         on_started(turn_id)
         await asyncio.sleep(self.delay)
         if self.disconnected:

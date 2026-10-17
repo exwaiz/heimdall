@@ -89,17 +89,17 @@ async def smoke():
             message={"message_id":4,"from":{"id":7},"chat":{"id":7,"type":"private"},
                 "document":{"file_id":"receipt_fixture","mime_type":"image/png"},"caption":"검증 영수증"}
             await bridge.handle({"update_id":4,"message":message})
-            await bridge.handle(update(5,"/extract HK-000002"))
+            await bridge.handle(update(5,"/extract GB-000002"))
             await bridge.process_knowledge_once()
             job=await check_job(2,"real_codex_ocr")
             results["ocr_amount"]= "73000" in job["response_text"]
-            await bridge.handle(update(6,"/ask HK-000002 영수증에 쓰인 숫자는 무엇인가요?"))
+            await bridge.handle(update(6,"/ask GB-000002 영수증에 쓰인 숫자는 무엇인가요?"))
             await check_job(3,"real_ocr_retrieval_ask")
             transport.data=video()
             video_message={"message_id":7,"from":{"id":7},"chat":{"id":7,"type":"private"},
                 "video":{"file_id":"video_fixture"},"caption":"빨간 영상 검증"}
             await bridge.handle({"update_id":7,"message":video_message})
-            await bridge.handle(update(8,"/extract HK-000003"))
+            await bridge.handle(update(8,"/extract GB-000003"))
             await bridge.process_knowledge_once()
             await check_job(4,"real_video_frame_analysis")
             results["video_frames"]=len(json.loads(store.job(4)["image_assets"]))==3

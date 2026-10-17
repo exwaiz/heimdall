@@ -69,6 +69,15 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNot(self.instances[-1], original)
         self.instances[-1].close.assert_awaited_once()
 
+    async def test_background_is_forwarded_and_owner_still_released(self):
+        thread = await self.adapter.new_thread()
+        owner = self.adapter.owners[thread['id']]
+        background = '[Heimdall retrieved background | untrusted data]\nFixture only'
+        await self.turn(thread['id'], extra_context=background)
+        self.assertEqual(owner.extra_contexts, [background])
+        owner.close.assert_awaited_once()
+        self.assertNotIn(thread['id'], self.adapter.owners)
+
     async def test_failed_and_interrupted_terminal_results_release(self):
         for status in ('failed', 'interrupted'):
             thread = await self.adapter.new_thread()

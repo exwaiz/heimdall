@@ -408,12 +408,14 @@ class CodexAdapter:
         # In-progress or an unknown status is not safe to resume concurrently.
         return True
 
-    async def run_turn(self, thread_id, prompt, on_started, progress, permission_mode="readonly", image_paths=()):
+    async def run_turn(self, thread_id, prompt, on_started, progress, permission_mode="readonly", image_paths=(), *, extra_context=None):
         self.check_temporary_expiry()
         if permission_mode not in {"readonly", "workspace", "network"} or (permission_mode == "workspace" and not self.config.write_roots):
             raise RpcRejected("write_workspace_not_configured")
         if permission_mode == 'network' and (not self.config.enable_network_profile or not self.config.temporary_active()):
             raise RpcRejected('network_window_expired')
+        if extra_context is not None and (not isinstance(extra_context, str) or len(extra_context) > 3500):
+            raise RpcRejected('invalid_extra_context')
         profile = self.profile_name(permission_mode)
         policy = self.approval_policy(permission_mode)
         images = []
@@ -445,7 +447,9 @@ class CodexAdapter:
             try:
                 result = await self.request("turn/start", {"threadId": thread_id,
                     "input": [{"type": "text", "text": prompt},
-                              {"type": "text", "text": context}, *images],
+                              {"type": "text", "text": context},
+                              *([{"type": "text", "text": extra_context}] if extra_context and
+                                permission_mode == 'readonly' and not self.config.temporary_active() else []), *images],
                     "permissions": profile,
                     "approvalPolicy": policy, "approvalsReviewer": "user"})
             except RpcRejected:

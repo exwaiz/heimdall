@@ -87,7 +87,7 @@ class Operations:
         with self.store.transaction():
             job = self._job(job_id, chat, user)
             if job.get("knowledge_context") and json.loads(job["knowledge_context"]).get("purpose") == "extract":
-                raise ValueError("자료 재추출은 /extract HK-000001 형식으로 요청하세요.")
+                raise ValueError("자료 재추출은 /extract GB-000001 형식으로 요청하세요.")
             if job.get("permission_mode", "readonly") == "workspace":
                 binding = self.store.conn.execute(
                     "SELECT * FROM chat_bindings WHERE chat_id=?", (chat,)).fetchone()
@@ -130,6 +130,8 @@ class Operations:
                 self.store.conn.execute("UPDATE jobs SET image_assets=? WHERE job_id=?", (job["image_assets"], new_id))
             if "knowledge_context" in job:
                 self.store.conn.execute("UPDATE jobs SET knowledge_context=? WHERE job_id=?", (job["knowledge_context"], new_id))
+            if 'auto_memory_refs' in job:
+                self.store.conn.execute('UPDATE jobs SET auto_memory_refs=? WHERE job_id=?', (job['auto_memory_refs'], new_id))
             self._event(job_id, f"retry_created:{new_id}:{message_id}")
             self._event(new_id, f"retry_of:{job_id}")
             if terminal:
